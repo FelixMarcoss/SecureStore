@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'design_system.dart';
+import 'models/detection_event.dart';
 
 class EntryGuardScreen extends StatefulWidget {
   const EntryGuardScreen({super.key});
@@ -11,6 +12,35 @@ class EntryGuardScreen extends StatefulWidget {
 
 class _EntryGuardScreenState extends State<EntryGuardScreen> {
   int _currentTab = 0; // 0 = Monitor, 1 = Alerts, 2 = Profile
+
+  // Sample data structured to match Supabase query columns:
+  // de.id, de.detected_at, rp.name as nome_suspeito, rp.risk_level as nivel_risco, de.confidence_score as precisao_ia, de.origin_store_name as loja_onde_passou
+  final List<DetectionEvent> _events = [
+    DetectionEvent(
+      id: 'de_01',
+      detectedAt: DateTime.now().subtract(const Duration(minutes: 2)),
+      suspectName: null, // represents "Unrecognized Subject" (nome_suspeito when null/empty)
+      riskLevel: 'High', // priority level (nivel_risco)
+      confidenceScore: 0.12, // match precision (precisao_ia)
+      originStoreName: 'Main Entrance', // store name (loja_onde_passou)
+    ),
+    DetectionEvent(
+      id: 'de_02',
+      detectedAt: DateTime.now().subtract(const Duration(minutes: 55)),
+      suspectName: 'Marcos Félix', // nome_suspeito
+      riskLevel: 'Medium', // nivel_risco
+      confidenceScore: 0.88, // precisao_ia
+      originStoreName: 'Rear Gate', // loja_onde_passou
+    ),
+    DetectionEvent(
+      id: 'de_03',
+      detectedAt: DateTime.now().subtract(const Duration(hours: 1, minutes: 21)),
+      suspectName: 'Ana Souza', // nome_suspeito
+      riskLevel: 'Low', // nivel_risco
+      confidenceScore: 0.95, // precisao_ia
+      originStoreName: 'Loading Dock', // loja_onde_passou
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -41,16 +71,16 @@ class _EntryGuardScreenState extends State<EntryGuardScreen> {
                     const CameraFeedStream(),
                     const SizedBox(height: AppSpacing.md),
 
-                    // Alert Card ("Unrecognized Subject")
-                    const UnrecognizedSubjectCard(),
+                    // Alert Card (binds to the most recent event in database representation)
+                    UnrecognizedSubjectCard(event: _events.first),
                     const SizedBox(height: AppSpacing.lg),
 
                     // Timeline Header
                     const TimelineHeader(),
                     const SizedBox(height: AppSpacing.sm),
 
-                    // Timeline Logs
-                    const TimelineLogList(),
+                    // Timeline Logs (binds to the list representation of all events)
+                    TimelineLogList(events: _events),
                     const SizedBox(height: AppSpacing.xl),
                   ],
                 ),
@@ -424,10 +454,46 @@ class _CameraFeedStreamState extends State<CameraFeedStream>
 }
 
 class UnrecognizedSubjectCard extends StatelessWidget {
-  const UnrecognizedSubjectCard({super.key});
+  final DetectionEvent event;
+
+  const UnrecognizedSubjectCard({super.key, required this.event});
+
+  String _formatTimeAgo(DateTime dateTime) {
+    final difference = DateTime.now().difference(dateTime);
+    if (difference.inMinutes < 1) {
+      return 'JUST NOW';
+    } else if (difference.inMinutes < 60) {
+      return '${difference.inMinutes}M AGO';
+    } else if (difference.inHours < 24) {
+      return '${difference.inHours}H AGO';
+    } else {
+      return '${difference.inDays}D AGO';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    Color riskColor;
+    Color riskBg;
+    String riskText;
+
+    if (event.riskLevel == 'High') {
+      riskColor = AppColors.error;
+      riskBg = AppColors.errorContainer;
+      riskText = 'Priority\nHigh';
+    } else if (event.riskLevel == 'Medium') {
+      riskColor = AppColors.warning;
+      riskBg = AppColors.warningContainer;
+      riskText = 'Priority\nMedium';
+    } else {
+      riskColor = AppColors.success;
+      riskBg = AppColors.successContainer;
+      riskText = 'Priority\nLow';
+    }
+
+    final String suspectName = event.suspectName ?? 'Unrecognized Subject';
+    final String timeAgo = _formatTimeAgo(event.detectedAt);
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -452,14 +518,14 @@ class UnrecognizedSubjectCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(AppRadius.standard),
                   border: Border.all(
-                    color: AppColors.errorContainer.withOpacity(0.5),
+                    color: riskColor.withOpacity(0.5),
                     width: 1.0,
                   ),
-                  color: AppColors.errorContainer.withOpacity(0.08),
+                  color: riskColor.withOpacity(0.08),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.door_sliding_outlined,
-                  color: AppColors.errorContainer,
+                  color: riskColor,
                   size: 24,
                 ),
               ),
@@ -471,7 +537,7 @@ class UnrecognizedSubjectCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Unrecognized Subject',
+                      suspectName,
                       style: AppTypography.headlineSm.copyWith(
                         color: AppColors.onSurface,
                       ),
@@ -480,14 +546,14 @@ class UnrecognizedSubjectCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          'MAIN ENTRANCE',
+                          event.originStoreName.toUpperCase(),
                           style: AppTypography.labelSm.copyWith(
                             color: AppColors.onSurfaceVariant.withOpacity(0.6),
                             fontSize: 9,
                           ),
                         ),
                         Text(
-                          '  •  2M AGO',
+                          '  •  $timeAgo',
                           style: AppTypography.labelSm.copyWith(
                             color: AppColors.onSurfaceVariant.withOpacity(0.6),
                             fontSize: 9,
@@ -499,25 +565,25 @@ class UnrecognizedSubjectCard extends StatelessWidget {
                 ),
               ),
 
-              // Badge: Priority High
+              // Badge: Priority
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.sm,
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.errorContainer.withOpacity(0.12),
+                  color: riskBg.withOpacity(0.12),
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                   border: Border.all(
-                    color: AppColors.errorContainer.withOpacity(0.3),
+                    color: riskBg.withOpacity(0.3),
                     width: 0.5,
                   ),
                 ),
                 child: Text(
-                  'Priority\nHigh',
+                  riskText,
                   textAlign: TextAlign.center,
                   style: AppTypography.labelSm.copyWith(
-                    color: AppColors.error,
+                    color: riskColor,
                     fontSize: 8,
                     fontWeight: FontWeight.bold,
                     height: 1.1,
@@ -559,7 +625,7 @@ class UnrecognizedSubjectCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '12% Match',
+                        '${(event.confidenceScore * 100).toStringAsFixed(0)}% Match',
                         style: AppTypography.headlineSm.copyWith(
                           color: AppColors.onSurface,
                           fontSize: 14,
@@ -598,9 +664,11 @@ class UnrecognizedSubjectCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'LOCKED',
+                        event.riskLevel == 'High' ? 'LOCKED' : 'OPEN',
                         style: AppTypography.headlineSm.copyWith(
-                          color: AppColors.error,
+                          color: event.riskLevel == 'High'
+                              ? AppColors.error
+                              : AppColors.success,
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
                         ),
@@ -736,7 +804,9 @@ class TimelineHeader extends StatelessWidget {
 }
 
 class TimelineLogList extends StatelessWidget {
-  const TimelineLogList({super.key});
+  final List<DetectionEvent> events;
+
+  const TimelineLogList({super.key, required this.events});
 
   @override
   Widget build(BuildContext context) {
@@ -750,28 +820,44 @@ class TimelineLogList extends StatelessWidget {
         ),
       ),
       child: Column(
-        children: [
-          // Log Item 1: Staff Entry
-          const LogItem(
-            time: '14:38',
-            title: 'Staff Entry',
-            subtitle: 'Manager (ID: 02441) • Rear Gate',
-            icon: Icons.shield_outlined,
-            iconColor: AppColors.primary,
-          ),
+        children: List.generate(events.length, (index) {
+          final event = events[index];
+          final timeStr = '${event.detectedAt.hour.toString().padLeft(2, '0')}:${event.detectedAt.minute.toString().padLeft(2, '0')}';
           
-          // Divider
-          Divider(color: AppColors.outlineVariant.withOpacity(0.3), height: 1),
+          IconData iconData = Icons.shield_outlined;
+          Color iconColor = AppColors.primary;
+          
+          if (event.riskLevel == 'High') {
+            iconData = Icons.gpp_maybe_outlined;
+            iconColor = AppColors.error;
+          } else if (event.riskLevel == 'Medium') {
+            iconData = Icons.shield_outlined;
+            iconColor = AppColors.warning;
+          } else if (event.riskLevel == 'Low') {
+            iconData = Icons.verified_user_outlined;
+            iconColor = AppColors.success;
+          }
 
-          // Log Item 2: Delivery Exit
-          const LogItem(
-            time: '14:12',
-            title: 'Delivery Exit',
-            subtitle: 'Logistics B • Loading Dock',
-            icon: Icons.chevron_right_rounded,
-            iconColor: AppColors.onSurfaceVariant,
-          ),
-        ],
+          final suspectLabel = event.suspectName ?? 'Unrecognized Subject';
+          final subText = '${(event.confidenceScore * 100).toStringAsFixed(0)}% Match • ${event.originStoreName}';
+
+          return Column(
+            children: [
+              LogItem(
+                time: timeStr,
+                title: suspectLabel,
+                subtitle: subText,
+                icon: iconData,
+                iconColor: iconColor,
+              ),
+              if (index < events.length - 1)
+                Divider(
+                  color: AppColors.outlineVariant.withOpacity(0.3),
+                  height: 1,
+                ),
+            ],
+          );
+        }),
       ),
     );
   }
